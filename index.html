@@ -308,10 +308,10 @@
             const jmaData = await jmaRes.json();
             console.log('JMA targetTimes:', jmaData);
 
-            const nowUnix = Math.floor(Date.now() / 1000);
+            console.log('JMA targetTimes sample:', jmaData.slice(0, 3));
 
             forecastFrames = jmaData
-              .filter(e => jmaTimeToUnix(e.validtime) > nowUnix)
+              .filter(e => e.validtime > e.basetime)
               .sort((a, b) => a.validtime.localeCompare(b.validtime))
               .map(e => ({
                 time: jmaTimeToUnix(e.validtime),
