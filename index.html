@@ -311,6 +311,16 @@
           console.log('total frames:', frames.length);
           console.log('past:', pastFrames.length, '/ forecast:', forecastFrames.length);
 
+          if (forecastFrames.length > 0) {
+            const testFrame = forecastFrames[0];
+            const d = new Date(testFrame.time * 1000);
+            d.setUTCMinutes(0, 0, 0);
+            const ts = d.toISOString().replace('.000', '');
+            console.log('Tomorrow.io test URL:',
+              `https://api.tomorrow.io/v4/map/tile/6/57/26/precipitationIntensity/${ts}.png?apikey=${TOMORROW_API_KEY}`
+            );
+          }
+
           // バッジ更新
           const badge = document.getElementById('forecast-badge');
           if (badge) badge.textContent = '🌧 過去2時間 ＋ 6時間予測';
@@ -361,14 +371,20 @@
               zIndex: 10
             });
           } else {
-            // Tomorrow.io タイル
-            tileUrl = `https://api.tomorrow.io/v4/map/tile/{z}/{x}/{y}/precipitationIntensity/${frame.isoTime}.png?apikey=${TOMORROW_API_KEY}`;
+            // Tomorrow.io タイル - タイムスタンプを30分刻みに正規化
+            const d = new Date(frame.time * 1000);
+            const minutes = d.getUTCMinutes() < 30 ? 0 : 30;
+            d.setUTCMinutes(minutes, 0, 0);
+            const ts = d.toISOString().replace('.000', '');
+
+            tileUrl = `https://api.tomorrow.io/v4/map/tile/{z}/{x}/{y}/precipitationIntensity/${ts}.png?apikey=${TOMORROW_API_KEY}`;
             radarLayers[index] = L.tileLayer(tileUrl, {
-              opacity: 0.5,
+              opacity: 0.6,
               maxZoom: 18,
               maxNativeZoom: 8,
               tileSize: 256,
-              zIndex: 10
+              zIndex: 10,
+              crossOrigin: true
             });
           }
         }
