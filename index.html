@@ -283,23 +283,26 @@
         const past = data.radar.past || [];
         const nowcast = data.radar.nowcast || [];
 
-        // デバッグ：フレーム数を確認
         console.log('past frames:', past.length);
         console.log('nowcast frames:', nowcast.length);
-        console.log('nowcast data:', nowcast);
 
-        // 現在フレーム（過去の最後）+ nowcast予測のみ
-        const currentFrame = past[past.length - 1];
-        frames = [currentFrame, ...nowcast];
+        if (nowcast.length > 0) {
+          // nowcastあり：現在 + 予測フレーム
+          const currentFrame = past[past.length - 1];
+          frames = [currentFrame, ...nowcast];
+          document.getElementById('forecast-badge').textContent = '🌧 降水予測（最大60分先）';
+        } else {
+          // nowcastなし：過去フレーム全てでアニメーション
+          frames = [...past];
+          document.getElementById('forecast-badge').textContent = '🌧 降水レーダー（過去2時間）';
+        }
 
         console.log('total frames:', frames.length);
 
-        // 初期表示を先頭フレーム（現在）に設定
-        nowIndex = 0;
-
+        nowIndex = frames.length - 1;
         slider.max = frames.length - 1;
-        slider.value = 0;
-        currentFrameIndex = 0;
+        slider.value = frames.length - 1;
+        currentFrameIndex = frames.length - 1;
 
         updateNowMarker();
         showFrame(currentFrameIndex);
@@ -360,15 +363,15 @@
         const diffMin = Math.round((unixTime - nowTime) / 60);
 
         timeRelative.className = '';
-        if (diffMin <= 0) {
+        if (Math.abs(diffMin) <= 5) {
           timeRelative.textContent = '現在';
           timeRelative.classList.add('time-now');
-        } else if (diffMin <= 60) {
+        } else if (diffMin > 5) {
           timeRelative.textContent = `+${diffMin}分後 (予測)`;
           timeRelative.classList.add('time-forecast');
         } else {
-          timeRelative.textContent = `+${Math.round(diffMin / 60)}時間後 (予測)`;
-          timeRelative.classList.add('time-forecast');
+          timeRelative.textContent = `${diffMin}分前`;
+          timeRelative.classList.add('time-past');
         }
       }
 
