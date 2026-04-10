@@ -245,7 +245,7 @@
       // --- Map setup ---
       const map = L.map('map', {
         center: [35.68, 139.69],
-        zoom: 7,
+        zoom: 6,
         maxZoom: 10,
         minZoom: 3,
         zoomControl: true,
@@ -257,6 +257,13 @@
         maxZoom: 19,
         maxNativeZoom: 19
       }).addTo(map);
+
+      // ズームレベルが10を超えていたら強制的に戻す
+      map.on('zoomend', function() {
+        if (map.getZoom() > 10) {
+          map.setZoom(10);
+        }
+      });
 
       // --- State ---
       let frames = [];
@@ -315,8 +322,8 @@
         if (!radarLayers[index]) {
           radarLayers[index] = L.tileLayer(getTileUrl(frame), {
             opacity: 0.7,
-            maxZoom: 12,
-            maxNativeZoom: 12,
+            maxZoom: 10,
+            maxNativeZoom: 10,
             tileSize: 256,
             zIndex: 10
           });
@@ -343,8 +350,8 @@
         if (!radarLayers[nextIndex]) {
           radarLayers[nextIndex] = L.tileLayer(getTileUrl(frames[nextIndex]), {
             opacity: 0,
-            maxZoom: 12,
-            maxNativeZoom: 12,
+            maxZoom: 10,
+            maxNativeZoom: 10,
             tileSize: 256,
             zIndex: 10
           });
