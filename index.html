@@ -283,9 +283,16 @@
         const past = data.radar.past || [];
         const nowcast = data.radar.nowcast || [];
 
+        // デバッグ：フレーム数を確認
+        console.log('past frames:', past.length);
+        console.log('nowcast frames:', nowcast.length);
+        console.log('nowcast data:', nowcast);
+
         // 現在フレーム（過去の最後）+ nowcast予測のみ
         const currentFrame = past[past.length - 1];
         frames = [currentFrame, ...nowcast];
+
+        console.log('total frames:', frames.length);
 
         // 初期表示を先頭フレーム（現在）に設定
         nowIndex = 0;
@@ -311,48 +318,36 @@
       }
 
       function showFrame(index) {
-        if (index < 0 || index >= frames.length) return;
-        const frame = frames[index];
+        if (!frames[index]) {
+          console.warn('フレームが存在しません:', index);
+          return;
+        }
 
-        // Create layer if not cached
+        // 既存のレーダーレイヤーを全て非表示
+        Object.values(radarLayers).forEach(layer => {
+          if (map.hasLayer(layer)) {
+            map.removeLayer(layer);
+          }
+        });
+
+        // 対象フレームのレイヤーを表示
+        const frame = frames[index];
         if (!radarLayers[index]) {
           radarLayers[index] = L.tileLayer(getTileUrl(frame), {
-            opacity: 0.7,
+            opacity: 0.6,
             maxZoom: 18,
             maxNativeZoom: 6,
             tileSize: 256,
             zIndex: 10
           });
         }
-
-        // Hide all, show current
-        for (const key in radarLayers) {
-          if (radarLayers[key]._map) {
-            radarLayers[key].setOpacity(0);
-          }
-        }
-
-        if (!radarLayers[index]._map) {
-          radarLayers[index].addTo(map);
-        }
-        radarLayers[index].setOpacity(0.7);
+        radarLayers[index].addTo(map);
 
         currentFrameIndex = index;
         slider.value = index;
-        updateTimeDisplay(frame.time);
 
-        // Preload next frame
-        const nextIndex = (index + 1) % frames.length;
-        if (!radarLayers[nextIndex]) {
-          radarLayers[nextIndex] = L.tileLayer(getTileUrl(frames[nextIndex]), {
-            opacity: 0,
-            maxZoom: 18,
-            maxNativeZoom: 6,
-            tileSize: 256,
-            zIndex: 10
-          });
-          radarLayers[nextIndex].addTo(map);
-        }
+        // 時刻表示を更新
+        updateTimeDisplay(frame.time);
       }
 
       function updateTimeDisplay(unixTime) {
@@ -380,34 +375,40 @@
       // --- Playback ---
       function togglePlay() {
         if (isPlaying) {
-          stopPlay();
-        } else {
-          startPlay();
+          clearInterval(playInterval);
+          playInterval = null;
+          isPlaying = false;
+          btnPlay.innerHTML = '▶';
+          return;
         }
-      }
 
-      function startPlay() {
         isPlaying = true;
-        btnPlay.innerHTML = '&#9646;&#9646;';
-        playInterval = setInterval(() => {
-          let next = currentFrameIndex + 1;
-          if (next >= frames.length) next = 0;
-          showFrame(next);
-        }, 500);
-      }
+        btnPlay.innerHTML = '⏸';
 
-      function stopPlay() {
-        isPlaying = false;
-        btnPlay.innerHTML = '&#9654;';
-        clearInterval(playInterval);
-        playInterval = null;
+        playInterval = setInterval(() => {
+          // フレームが1つしかない場合は止める
+          if (frames.length <= 1) {
+            clearInterval(playInterval);
+            isPlaying = false;
+            btnPlay.innerHTML = '▶';
+            return;
+          }
+
+          currentFrameIndex = (currentFrameIndex + 1) % frames.length;
+          showFrame(currentFrameIndex);
+        }, 800);
       }
 
       // --- Events ---
       btnPlay.addEventListener('click', togglePlay);
 
       slider.addEventListener('input', () => {
-        stopPlay();
+        if (isPlaying) {
+          clearInterval(playInterval);
+          playInterval = null;
+          isPlaying = false;
+          btnPlay.innerHTML = '▶';
+        }
         showFrame(parseInt(slider.value));
       });
 
