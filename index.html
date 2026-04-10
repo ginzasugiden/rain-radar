@@ -266,6 +266,7 @@
       let playInterval = null;
       let radarLayers = {};
       let nowIndex = 0;
+      let nowTime = 0;
 
       const slider = document.getElementById('slider');
       const timeAbsolute = document.getElementById('time-absolute');
@@ -275,33 +276,59 @@
       const nowMarker = document.getElementById('now-marker');
       const loading = document.getElementById('loading');
 
+      // --- JMA tile utilities ---
+      function toJmaTime(date) {
+        const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+        const Y = jst.getUTCFullYear();
+        const M = String(jst.getUTCMonth() + 1).padStart(2, '0');
+        const D = String(jst.getUTCDate()).padStart(2, '0');
+        const h = String(jst.getUTCHours()).padStart(2, '0');
+        const m = String(Math.floor(jst.getUTCMinutes() / 5) * 5).padStart(2, '0');
+        return `${Y}${M}${D}${h}${m}00`;
+      }
+
+      function getJmaTileUrl(timestamp) {
+        return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${timestamp}/none/${timestamp}/surf/hrpns/{z}/{x}/{y}.png`;
+      }
+
       // --- Fetch radar data ---
       async function loadRadarData() {
-        const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
-        const data = await res.json();
+        const now = new Date();
 
-        const past = data.radar.past || [];
-        const nowcast = data.radar.nowcast || [];
-
-        console.log('past frames:', past.length);
-        console.log('nowcast frames:', nowcast.length);
-
-        // 過去 + nowcast を時系列順に結合
-        frames = [...past, ...nowcast];
-
-        // nowcastの有無でバッジ表示を切り替え
-        const badge = document.getElementById('forecast-badge');
-        if (badge) {
-          badge.textContent = nowcast.length > 0
-            ? '🌧 過去2時間 ＋ 予測60分'
-            : '🌧 降水レーダー（過去2時間）';
+        // 過去13フレーム（-120分〜現在、10分刻み）
+        const pastFrames = [];
+        for (let i = -120; i <= 0; i += 10) {
+          const d = new Date(now.getTime() + i * 60 * 1000);
+          pastFrames.push({
+            time: Math.floor(d.getTime() / 1000),
+            jmaTime: toJmaTime(d),
+            isForecast: false
+          });
         }
 
-        console.log('total frames:', frames.length);
+        // 未来6フレーム（+10〜+60分、10分刻み）
+        const forecastFrames = [];
+        for (let i = 10; i <= 60; i += 10) {
+          const d = new Date(now.getTime() + i * 60 * 1000);
+          forecastFrames.push({
+            time: Math.floor(d.getTime() / 1000),
+            jmaTime: toJmaTime(d),
+            isForecast: true
+          });
+        }
 
-        // nowIndex は過去フレームの最後（現在に最も近い）
-        nowIndex = past.length - 1;
-        if (nowIndex < 0) nowIndex = 0;
+        frames = [...pastFrames, ...forecastFrames];
+        nowTime = Math.floor(now.getTime() / 1000);
+
+        console.log('total frames:', frames.length);
+        console.log('past:', pastFrames.length, '/ forecast:', forecastFrames.length);
+
+        // バッジ更新
+        const badge = document.getElementById('forecast-badge');
+        if (badge) badge.textContent = '🌧 過去2時間 ＋ 60分予測（気象庁）';
+
+        // nowIndex は過去フレームの最後（現在）
+        nowIndex = pastFrames.length - 1;
 
         slider.max = frames.length - 1;
         slider.value = nowIndex;
@@ -319,30 +346,20 @@
       }
 
       // --- Frame rendering ---
-      function getTileUrl(frame) {
-        return `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
-      }
-
       function showFrame(index) {
-        if (!frames[index]) {
-          console.warn('フレームが存在しません:', index);
-          return;
-        }
+        if (!frames[index]) return;
 
-        // 既存のレーダーレイヤーを全て非表示
+        // 既存のレーダーレイヤーを全て除去
         Object.values(radarLayers).forEach(layer => {
-          if (map.hasLayer(layer)) {
-            map.removeLayer(layer);
-          }
+          if (map.hasLayer(layer)) map.removeLayer(layer);
         });
 
-        // 対象フレームのレイヤーを表示
         const frame = frames[index];
         if (!radarLayers[index]) {
-          radarLayers[index] = L.tileLayer(getTileUrl(frame), {
-            opacity: 0.6,
+          radarLayers[index] = L.tileLayer(getJmaTileUrl(frame.jmaTime), {
+            opacity: frame.isForecast ? 0.5 : 0.7,
             maxZoom: 18,
-            maxNativeZoom: 6,
+            maxNativeZoom: 10,
             tileSize: 256,
             zIndex: 10
           });
@@ -362,18 +379,17 @@
         const m = date.getMinutes().toString().padStart(2, '0');
         timeAbsolute.textContent = `${date.getMonth() + 1}/${date.getDate()} ${h}:${m}`;
 
-        const nowTime = frames[nowIndex].time;
         const diffMin = Math.round((unixTime - nowTime) / 60);
 
         timeRelative.className = '';
         if (Math.abs(diffMin) <= 5) {
-          timeRelative.textContent = '現在';
+          timeRelative.textContent = '🔵 現在';
           timeRelative.classList.add('time-now');
-        } else if (diffMin > 5) {
-          timeRelative.textContent = `+${diffMin}分後 (予測)`;
+        } else if (diffMin > 0) {
+          timeRelative.textContent = `🟠 +${diffMin}分後 (予測)`;
           timeRelative.classList.add('time-forecast');
         } else {
-          timeRelative.textContent = `${diffMin}分前`;
+          timeRelative.textContent = `⚪ ${diffMin}分前`;
           timeRelative.classList.add('time-past');
         }
       }
