@@ -304,14 +304,13 @@
           // ② 気象庁から予測フレーム取得
           let forecastFrames = [];
           try {
-            const jmaRes = await fetch('https://www.jma.go.jp/bosai/nowc/data/nowc_info.json');
+            const jmaRes = await fetch('https://www.jma.go.jp/bosai/jmatile/data/nowc/targetTimes_N1.json');
             const jmaData = await jmaRes.json();
-            console.log('JMA data:', jmaData);
+            console.log('JMA targetTimes:', jmaData);
 
             const nowUnix = Math.floor(Date.now() / 1000);
-            const entries = Array.isArray(jmaData) ? jmaData : (jmaData.nowcast || []);
 
-            forecastFrames = entries
+            forecastFrames = jmaData
               .filter(e => jmaTimeToUnix(e.validtime) > nowUnix)
               .sort((a, b) => a.validtime.localeCompare(b.validtime))
               .map(e => ({
@@ -321,6 +320,7 @@
                 type: 'jma',
                 isForecast: true
               }));
+            console.log('JMA forecast frames:', forecastFrames.length);
           } catch (e) {
             console.warn('気象庁予測データ取得失敗:', e);
           }
