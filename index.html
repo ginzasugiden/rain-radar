@@ -276,58 +276,63 @@
       const nowMarker = document.getElementById('now-marker');
       const loading = document.getElementById('loading');
 
-      const TOMORROW_API_KEY = 'ここに新しいAPIキーを入れる';
-
       // --- Fetch radar data ---
       async function loadRadarData() {
         try {
+          const OWM_API_KEY = '5f0fa9efbb21dc0fc2aededf2481447a';
+
           // ① RainViewer 過去フレーム
-          const rvRes = await fetch('https://api.rainviewer.com/public/weather-maps.json');
-          const rvData = await rvRes.json();
-          const pastFrames = rvData.radar.past.map(f => ({
+          const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+          const data = await res.json();
+
+          const pastFrames = data.radar.past.map(f => ({
             time: f.time,
             path: f.path,
             type: 'rainviewer',
             isForecast: false
           }));
 
-          // ② Tomorrow.io 予測フレーム（+30分〜+6時間、30分刻み）
-          const now = new Date();
-          const forecastFrames = [];
-          for (let h = 0.5; h <= 6; h += 0.5) {
-            const d = new Date(now.getTime() + h * 60 * 60 * 1000);
-            d.setMinutes(Math.round(d.getMinutes() / 30) * 30, 0, 0);
-            forecastFrames.push({
-              time: Math.floor(d.getTime() / 1000),
-              isoTime: d.toISOString(),
-              type: 'tomorrow',
-              isForecast: true
-            });
+          const nowcastFrames = (data.radar.nowcast || []).map(f => ({
+            time: f.time,
+            path: f.path,
+            type: 'rainviewer',
+            isForecast: true
+          }));
+
+          // ② OWM 予測フレーム（nowcastがない場合のみ追加、+10〜+60分）
+          let owmFrames = [];
+          if (nowcastFrames.length === 0) {
+            const now = Date.now();
+            for (let m = 10; m <= 60; m += 10) {
+              owmFrames.push({
+                time: Math.floor((now + m * 60 * 1000) / 1000),
+                type: 'owm',
+                isForecast: true,
+                owmKey: OWM_API_KEY
+              });
+            }
           }
 
-          frames = [...pastFrames, ...forecastFrames];
+          frames = [...pastFrames, ...nowcastFrames, ...owmFrames];
           nowTime = Math.floor(Date.now() / 1000);
 
-          console.log('total frames:', frames.length);
-          console.log('past:', pastFrames.length, '/ forecast:', forecastFrames.length);
-
-          if (forecastFrames.length > 0) {
-            const testFrame = forecastFrames[0];
-            const d = new Date(testFrame.time * 1000);
-            d.setUTCMinutes(0, 0, 0);
-            const ts = d.toISOString().replace('.000', '');
-            console.log('Tomorrow.io test URL:',
-              `https://api.tomorrow.io/v4/map/tile/6/57/26/precipitationIntensity/${ts}.png?apikey=${TOMORROW_API_KEY}`
-            );
-          }
+          console.log('past:', pastFrames.length, '/ nowcast:', nowcastFrames.length, '/ owm:', owmFrames.length);
 
           // バッジ更新
           const badge = document.getElementById('forecast-badge');
-          if (badge) badge.textContent = '🌧 過去2時間 ＋ 6時間予測';
+          if (badge) {
+            if (nowcastFrames.length > 0) {
+              badge.textContent = `🌧 過去2時間 ＋ ${nowcastFrames.length * 10}分予測`;
+            } else if (owmFrames.length > 0) {
+              badge.textContent = '🌧 過去2時間 ＋ 60分予測（OWM）';
+            } else {
+              badge.textContent = '🌧 降水レーダー（過去2時間）';
+            }
+          }
 
-          // スライダー・初期フレーム設定
-          nowIndex = pastFrames.length - 1;
-          if (nowIndex < 0) nowIndex = 0;
+          // スライダー・初期フレーム（現在）
+          const initIndex = pastFrames.length - 1;
+          nowIndex = initIndex < 0 ? 0 : initIndex;
 
           slider.max = frames.length - 1;
           slider.value = nowIndex;
@@ -352,48 +357,41 @@
       function showFrame(index) {
         if (!frames[index]) return;
 
-        // 既存のレーダーレイヤーを全て除去
         Object.values(radarLayers).forEach(layer => {
           if (map.hasLayer(layer)) map.removeLayer(layer);
         });
 
         const frame = frames[index];
+
         if (!radarLayers[index]) {
           let tileUrl;
 
-          if (frame.type === 'rainviewer') {
+          if (frame.type === 'owm') {
+            tileUrl = `https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${frame.owmKey}`;
+            radarLayers[index] = L.tileLayer(tileUrl, {
+              opacity: 0.5,
+              maxZoom: 18,
+              maxNativeZoom: 8,
+              tileSize: 256,
+              zIndex: 10
+            });
+          } else {
             tileUrl = `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
             radarLayers[index] = L.tileLayer(tileUrl, {
-              opacity: 0.7,
+              opacity: frame.isForecast ? 0.5 : 0.7,
               maxZoom: 18,
               maxNativeZoom: 6,
               tileSize: 256,
               zIndex: 10
             });
-          } else {
-            // Tomorrow.io タイル - タイムスタンプを30分刻みに正規化
-            const d = new Date(frame.time * 1000);
-            const minutes = d.getUTCMinutes() < 30 ? 0 : 30;
-            d.setUTCMinutes(minutes, 0, 0);
-            const ts = d.toISOString().replace('.000', '');
-
-            tileUrl = `https://api.tomorrow.io/v4/map/tile/{z}/{x}/{y}/precipitationIntensity/${ts}.png?apikey=${TOMORROW_API_KEY}`;
-            radarLayers[index] = L.tileLayer(tileUrl, {
-              opacity: 0.6,
-              maxZoom: 18,
-              maxNativeZoom: 8,
-              tileSize: 256,
-              zIndex: 10,
-              crossOrigin: true
-            });
           }
         }
+
         radarLayers[index].addTo(map);
 
         currentFrameIndex = index;
         slider.value = index;
 
-        // 時刻表示を更新
         updateTimeDisplay(frame.time);
       }
 
