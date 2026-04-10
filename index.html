@@ -286,23 +286,26 @@
         console.log('past frames:', past.length);
         console.log('nowcast frames:', nowcast.length);
 
-        if (nowcast.length > 0) {
-          // nowcastあり：現在 + 予測フレーム
-          const currentFrame = past[past.length - 1];
-          frames = [currentFrame, ...nowcast];
-          document.getElementById('forecast-badge').textContent = '🌧 降水予測（最大60分先）';
-        } else {
-          // nowcastなし：過去フレーム全てでアニメーション
-          frames = [...past];
-          document.getElementById('forecast-badge').textContent = '🌧 降水レーダー（過去2時間）';
+        // 過去 + nowcast を時系列順に結合
+        frames = [...past, ...nowcast];
+
+        // nowcastの有無でバッジ表示を切り替え
+        const badge = document.getElementById('forecast-badge');
+        if (badge) {
+          badge.textContent = nowcast.length > 0
+            ? '🌧 過去2時間 ＋ 予測60分'
+            : '🌧 降水レーダー（過去2時間）';
         }
 
         console.log('total frames:', frames.length);
 
-        nowIndex = frames.length - 1;
+        // nowIndex は過去フレームの最後（現在に最も近い）
+        nowIndex = past.length - 1;
+        if (nowIndex < 0) nowIndex = 0;
+
         slider.max = frames.length - 1;
-        slider.value = frames.length - 1;
-        currentFrameIndex = frames.length - 1;
+        slider.value = nowIndex;
+        currentFrameIndex = nowIndex;
 
         updateNowMarker();
         showFrame(currentFrameIndex);
@@ -376,6 +379,10 @@
       }
 
       // --- Playback ---
+      function updateSlider() {
+        if (slider) slider.value = currentFrameIndex;
+      }
+
       function togglePlay() {
         if (isPlaying) {
           clearInterval(playInterval);
@@ -388,18 +395,27 @@
         isPlaying = true;
         btnPlay.innerHTML = '⏸';
 
+        // 先頭（最古フレーム）からスタート
+        currentFrameIndex = 0;
+        showFrame(currentFrameIndex);
+        updateSlider();
+
         playInterval = setInterval(() => {
-          // フレームが1つしかない場合は止める
-          if (frames.length <= 1) {
+          currentFrameIndex++;
+
+          if (currentFrameIndex >= frames.length) {
+            // 最後まで再生したら止まる
+            currentFrameIndex = frames.length - 1;
             clearInterval(playInterval);
+            playInterval = null;
             isPlaying = false;
             btnPlay.innerHTML = '▶';
             return;
           }
 
-          currentFrameIndex = (currentFrameIndex + 1) % frames.length;
           showFrame(currentFrameIndex);
-        }, 800);
+          updateSlider();
+        }, 600);
       }
 
       // --- Events ---
