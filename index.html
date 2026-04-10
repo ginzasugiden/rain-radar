@@ -276,67 +276,84 @@
       const nowMarker = document.getElementById('now-marker');
       const loading = document.getElementById('loading');
 
-      // --- JMA tile utilities ---
-      function toJmaTime(date) {
-        const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
-        const Y = jst.getUTCFullYear();
-        const M = String(jst.getUTCMonth() + 1).padStart(2, '0');
-        const D = String(jst.getUTCDate()).padStart(2, '0');
-        const h = String(jst.getUTCHours()).padStart(2, '0');
-        const m = String(Math.floor(jst.getUTCMinutes() / 5) * 5).padStart(2, '0');
-        return `${Y}${M}${D}${h}${m}00`;
-      }
-
-      function getJmaTileUrl(timestamp) {
-        return `https://www.jma.go.jp/bosai/jmatile/data/nowc/${timestamp}/none/${timestamp}/surf/hrpns/{z}/{x}/{y}.png`;
+      // --- JMA utilities ---
+      function jmaTimeToUnix(jmaTime) {
+        const Y = jmaTime.slice(0, 4);
+        const M = jmaTime.slice(4, 6);
+        const D = jmaTime.slice(6, 8);
+        const h = jmaTime.slice(8, 10);
+        const m = jmaTime.slice(10, 12);
+        const s = jmaTime.slice(12, 14);
+        const jst = new Date(`${Y}-${M}-${D}T${h}:${m}:${s}+09:00`);
+        return Math.floor(jst.getTime() / 1000);
       }
 
       // --- Fetch radar data ---
       async function loadRadarData() {
-        const now = new Date();
-
-        // 過去13フレーム（-120分〜現在、10分刻み）
-        const pastFrames = [];
-        for (let i = -120; i <= 0; i += 10) {
-          const d = new Date(now.getTime() + i * 60 * 1000);
-          pastFrames.push({
-            time: Math.floor(d.getTime() / 1000),
-            jmaTime: toJmaTime(d),
+        try {
+          // ① RainViewer から過去フレーム取得
+          const rvRes = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+          const rvData = await rvRes.json();
+          const pastFrames = rvData.radar.past.map(f => ({
+            time: f.time,
+            path: f.path,
+            type: 'rainviewer',
             isForecast: false
-          });
+          }));
+
+          // ② 気象庁から予測フレーム取得
+          let forecastFrames = [];
+          try {
+            const jmaRes = await fetch('https://www.jma.go.jp/bosai/nowc/data/nowc_info.json');
+            const jmaData = await jmaRes.json();
+            console.log('JMA data:', jmaData);
+
+            const nowUnix = Math.floor(Date.now() / 1000);
+            const entries = Array.isArray(jmaData) ? jmaData : (jmaData.nowcast || []);
+
+            forecastFrames = entries
+              .filter(e => jmaTimeToUnix(e.validtime) > nowUnix)
+              .sort((a, b) => a.validtime.localeCompare(b.validtime))
+              .map(e => ({
+                time: jmaTimeToUnix(e.validtime),
+                validtime: e.validtime,
+                basetime: e.basetime,
+                type: 'jma',
+                isForecast: true
+              }));
+          } catch (e) {
+            console.warn('気象庁予測データ取得失敗:', e);
+          }
+
+          frames = [...pastFrames, ...forecastFrames];
+          nowTime = Math.floor(Date.now() / 1000);
+
+          console.log('total frames:', frames.length);
+          console.log('RainViewer past:', pastFrames.length, '/ JMA forecast:', forecastFrames.length);
+
+          // バッジ更新
+          const badge = document.getElementById('forecast-badge');
+          if (badge) {
+            badge.textContent = forecastFrames.length > 0
+              ? `🌧 過去2時間 ＋ ${forecastFrames.length * 5}分予測`
+              : '🌧 降水レーダー（過去2時間）';
+          }
+
+          // スライダー・初期フレーム設定
+          nowIndex = pastFrames.length - 1;
+          if (nowIndex < 0) nowIndex = 0;
+
+          slider.max = frames.length - 1;
+          slider.value = nowIndex;
+          currentFrameIndex = nowIndex;
+
+          updateNowMarker();
+          showFrame(currentFrameIndex);
+          loading.style.display = 'none';
+        } catch (err) {
+          console.error('データ取得エラー:', err);
+          loading.textContent = 'データ取得に失敗しました';
         }
-
-        // 未来6フレーム（+10〜+60分、10分刻み）
-        const forecastFrames = [];
-        for (let i = 10; i <= 60; i += 10) {
-          const d = new Date(now.getTime() + i * 60 * 1000);
-          forecastFrames.push({
-            time: Math.floor(d.getTime() / 1000),
-            jmaTime: toJmaTime(d),
-            isForecast: true
-          });
-        }
-
-        frames = [...pastFrames, ...forecastFrames];
-        nowTime = Math.floor(now.getTime() / 1000);
-
-        console.log('total frames:', frames.length);
-        console.log('past:', pastFrames.length, '/ forecast:', forecastFrames.length);
-
-        // バッジ更新
-        const badge = document.getElementById('forecast-badge');
-        if (badge) badge.textContent = '🌧 過去2時間 ＋ 60分予測（気象庁）';
-
-        // nowIndex は過去フレームの最後（現在）
-        nowIndex = pastFrames.length - 1;
-
-        slider.max = frames.length - 1;
-        slider.value = nowIndex;
-        currentFrameIndex = nowIndex;
-
-        updateNowMarker();
-        showFrame(currentFrameIndex);
-        loading.style.display = 'none';
       }
 
       function updateNowMarker() {
@@ -356,10 +373,17 @@
 
         const frame = frames[index];
         if (!radarLayers[index]) {
-          radarLayers[index] = L.tileLayer(getJmaTileUrl(frame.jmaTime), {
+          let tileUrl;
+          if (frame.type === 'rainviewer') {
+            tileUrl = `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
+          } else {
+            tileUrl = `https://www.jma.go.jp/bosai/jmatile/data/nowc/${frame.validtime}/none/${frame.basetime}/surf/hrpns/{z}/{x}/{y}.png`;
+          }
+
+          radarLayers[index] = L.tileLayer(tileUrl, {
             opacity: frame.isForecast ? 0.5 : 0.7,
             maxZoom: 18,
-            maxNativeZoom: 10,
+            maxNativeZoom: frame.type === 'jma' ? 10 : 6,
             tileSize: 256,
             zIndex: 10
           });
