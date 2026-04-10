@@ -401,10 +401,11 @@
         const m = date.getMinutes().toString().padStart(2, '0');
         timeAbsolute.textContent = `${date.getMonth() + 1}/${date.getDate()} ${h}:${m}`;
 
-        const diffMin = Math.round((unixTime - nowTime) / 60);
+        const diffMinRaw = (unixTime - nowTime) / 60;
+        const diffMin = Math.round(diffMinRaw / 10) * 10;
 
         timeRelative.className = '';
-        if (Math.abs(diffMin) <= 5) {
+        if (diffMin === 0) {
           timeRelative.textContent = '🔵 現在';
           timeRelative.classList.add('time-now');
         } else if (diffMin > 0) {
