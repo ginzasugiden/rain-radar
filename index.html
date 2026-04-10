@@ -192,6 +192,11 @@
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
 
+    /* OWM予測タイルを鮮明に */
+    .owm-tile-layer {
+      filter: saturate(3) contrast(1.5) brightness(1.1);
+    }
+
     @media (max-width: 480px) {
       #control-panel {
         padding: 10px 12px 16px;
@@ -369,11 +374,12 @@
           if (frame.type === 'owm') {
             tileUrl = `https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${frame.owmKey}`;
             radarLayers[index] = L.tileLayer(tileUrl, {
-              opacity: 0.5,
+              opacity: 0.85,
               maxZoom: 18,
               maxNativeZoom: 8,
               tileSize: 256,
-              zIndex: 10
+              zIndex: 10,
+              className: 'owm-tile-layer'
             });
           } else {
             tileUrl = `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
