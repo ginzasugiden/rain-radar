@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>雨雲レーダーマップ</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Noto Sans JP', sans-serif;
+      background: #0a0e1a;
+      color: #e0e0e0;
+      overflow: hidden;
+      height: 100vh;
+      height: 100dvh;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+    }
+
+    #control-panel {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      background: rgba(10, 14, 26, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      padding: 12px 16px 20px;
+      border-top: 1px solid rgba(0, 212, 255, 0.2);
+    }
+
+    #time-display {
+      text-align: center;
+      margin-bottom: 8px;
+      font-size: 14px;
+      min-height: 40px;
+    }
+
+    #time-absolute {
+      color: #999;
+      font-size: 12px;
+      display: block;
+    }
+
+    #time-relative {
+      font-size: 18px;
+      font-weight: 700;
+      display: block;
+      margin-top: 2px;
+    }
+
+    .time-past { color: #66bbff; }
+    .time-now { color: #00d4ff; text-shadow: 0 0 8px rgba(0,212,255,0.5); }
+    .time-forecast { color: #ff9f43; }
+
+    #slider-container {
+      position: relative;
+      margin: 4px 0 10px;
+    }
+
+    #slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: linear-gradient(to right, #66bbff, #00d4ff 60%, #ff9f43);
+      outline: none;
+      cursor: pointer;
+    }
+
+    #slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #00d4ff;
+      border: 2px solid #fff;
+      box-shadow: 0 0 6px rgba(0,212,255,0.6);
+      cursor: pointer;
+    }
+
+    #slider::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #00d4ff;
+      border: 2px solid #fff;
+      box-shadow: 0 0 6px rgba(0,212,255,0.6);
+      cursor: pointer;
+    }
+
+    #now-marker {
+      position: absolute;
+      top: -4px;
+      width: 2px;
+      height: 14px;
+      background: #00d4ff;
+      pointer-events: none;
+      transform: translateX(-1px);
+    }
+
+    #controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .ctrl-btn {
+      background: rgba(0, 212, 255, 0.15);
+      border: 1px solid rgba(0, 212, 255, 0.4);
+      color: #00d4ff;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      font-size: 18px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .ctrl-btn:active {
+      transform: scale(0.92);
+      background: rgba(0, 212, 255, 0.3);
+    }
+
+    #legend {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: #aaa;
+    }
+
+    .legend-color {
+      width: 14px;
+      height: 10px;
+      border-radius: 2px;
+    }
+
+    .leaflet-control-attribution {
+      background: rgba(10, 14, 26, 0.7) !important;
+      color: #666 !important;
+      font-size: 10px !important;
+    }
+
+    .leaflet-control-attribution a {
+      color: #888 !important;
+    }
+
+    .leaflet-control-zoom {
+      border: none !important;
+    }
+
+    .leaflet-control-zoom a {
+      background: rgba(10, 14, 26, 0.85) !important;
+      color: #00d4ff !important;
+      border: 1px solid rgba(0, 212, 255, 0.3) !important;
+      backdrop-filter: blur(8px);
+    }
+
+    #loading {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 2000;
+      color: #00d4ff;
+      font-size: 16px;
+      background: rgba(10, 14, 26, 0.9);
+      padding: 16px 28px;
+      border-radius: 8px;
+      border: 1px solid rgba(0, 212, 255, 0.3);
+    }
+
+    @media (max-width: 480px) {
+      #control-panel {
+        padding: 10px 12px 16px;
+      }
+      #time-relative {
+        font-size: 16px;
+      }
+      .legend-item {
+        font-size: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="loading">レーダーデータを読み込み中...</div>
+
+  <div id="control-panel">
+    <div id="time-display">
+      <span id="time-absolute"></span>
+      <span id="time-relative"></span>
+    </div>
+    <div id="slider-container">
+      <div id="now-marker"></div>
+      <input type="range" id="slider" min="0" max="0" value="0">
+    </div>
+    <div id="controls">
+      <button class="ctrl-btn" id="btn-play" title="再生/停止">&#9654;</button>
+      <button class="ctrl-btn" id="btn-locate" title="現在地">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="4"/>
+          <line x1="12" y1="2" x2="12" y2="6"/>
+          <line x1="12" y1="18" x2="12" y2="22"/>
+          <line x1="2" y1="12" x2="6" y2="12"/>
+          <line x1="18" y1="12" x2="22" y2="12"/>
+        </svg>
+      </button>
+    </div>
+    <div id="legend">
+      <div class="legend-item"><span class="legend-color" style="background:#72c7f0"></span>弱い雨</div>
+      <div class="legend-item"><span class="legend-color" style="background:#30b24a"></span>小雨</div>
+      <div class="legend-item"><span class="legend-color" style="background:#f0e641"></span>中雨</div>
+      <div class="legend-item"><span class="legend-color" style="background:#f09a28"></span>強雨</div>
+      <div class="legend-item"><span class="legend-color" style="background:#e02820"></span>激しい雨</div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    (async function() {
+      // --- Map setup ---
+      const map = L.map('map', {
+        center: [35.68, 139.69],
+        zoom: 7,
+        maxZoom: 12,
+        minZoom: 3,
+        zoomControl: true,
+        attributionControl: true
+      });
+
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://carto.com/">CARTO</a> | <a href="https://www.rainviewer.com/">RainViewer</a>',
+        maxZoom: 18,
+        subdomains: 'abcd'
+      }).addTo(map);
+
+      // --- State ---
+      let frames = [];
+      let currentFrameIndex = 0;
+      let isPlaying = false;
+      let playInterval = null;
+      let radarLayers = {};
+      let nowIndex = 0;
+
+      const slider = document.getElementById('slider');
+      const timeAbsolute = document.getElementById('time-absolute');
+      const timeRelative = document.getElementById('time-relative');
+      const btnPlay = document.getElementById('btn-play');
+      const btnLocate = document.getElementById('btn-locate');
+      const nowMarker = document.getElementById('now-marker');
+      const loading = document.getElementById('loading');
+
+      // --- Fetch radar data ---
+      async function loadRadarData() {
+        const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+        const data = await res.json();
+
+        const past = data.radar.past || [];
+        const nowcast = data.radar.nowcast || [];
+        frames = [...past, ...nowcast];
+
+        // Find the "now" index: last past frame
+        nowIndex = past.length - 1;
+        if (nowIndex < 0) nowIndex = 0;
+
+        slider.max = frames.length - 1;
+        slider.value = nowIndex;
+        currentFrameIndex = nowIndex;
+
+        updateNowMarker();
+        showFrame(currentFrameIndex);
+        loading.style.display = 'none';
+      }
+
+      function updateNowMarker() {
+        if (frames.length === 0) return;
+        const pct = (nowIndex / (frames.length - 1)) * 100;
+        nowMarker.style.left = `calc(${pct}% + ${(0.5 - pct / 100) * 12}px)`;
+      }
+
+      // --- Frame rendering ---
+      function getTileUrl(frame) {
+        return `https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`;
+      }
+
+      function showFrame(index) {
+        if (index < 0 || index >= frames.length) return;
+        const frame = frames[index];
+
+        // Create layer if not cached
+        if (!radarLayers[index]) {
+          radarLayers[index] = L.tileLayer(getTileUrl(frame), {
+            opacity: 0.7,
+            maxZoom: 12,
+            maxNativeZoom: 12,
+            tileSize: 256,
+            zIndex: 10
+          });
+        }
+
+        // Hide all, show current
+        for (const key in radarLayers) {
+          if (radarLayers[key]._map) {
+            radarLayers[key].setOpacity(0);
+          }
+        }
+
+        if (!radarLayers[index]._map) {
+          radarLayers[index].addTo(map);
+        }
+        radarLayers[index].setOpacity(0.7);
+
+        currentFrameIndex = index;
+        slider.value = index;
+        updateTimeDisplay(frame.time);
+
+        // Preload next frame
+        const nextIndex = (index + 1) % frames.length;
+        if (!radarLayers[nextIndex]) {
+          radarLayers[nextIndex] = L.tileLayer(getTileUrl(frames[nextIndex]), {
+            opacity: 0,
+            maxZoom: 12,
+            maxNativeZoom: 12,
+            tileSize: 256,
+            zIndex: 10
+          });
+          radarLayers[nextIndex].addTo(map);
+        }
+      }
+
+      function updateTimeDisplay(unixTime) {
+        const date = new Date(unixTime * 1000);
+        const h = date.getHours().toString().padStart(2, '0');
+        const m = date.getMinutes().toString().padStart(2, '0');
+        timeAbsolute.textContent = `${date.getMonth() + 1}/${date.getDate()} ${h}:${m}`;
+
+        const nowTime = frames[nowIndex].time;
+        const diffMin = Math.round((unixTime - nowTime) / 60);
+
+        timeRelative.className = '';
+        if (diffMin === 0) {
+          timeRelative.textContent = '現在';
+          timeRelative.classList.add('time-now');
+        } else if (diffMin > 0) {
+          timeRelative.textContent = `+${diffMin}分 (予測)`;
+          timeRelative.classList.add('time-forecast');
+        } else {
+          timeRelative.textContent = `${diffMin}分前`;
+          timeRelative.classList.add('time-past');
+        }
+      }
+
+      // --- Playback ---
+      function togglePlay() {
+        if (isPlaying) {
+          stopPlay();
+        } else {
+          startPlay();
+        }
+      }
+
+      function startPlay() {
+        isPlaying = true;
+        btnPlay.innerHTML = '&#9646;&#9646;';
+        playInterval = setInterval(() => {
+          let next = currentFrameIndex + 1;
+          if (next >= frames.length) next = 0;
+          showFrame(next);
+        }, 500);
+      }
+
+      function stopPlay() {
+        isPlaying = false;
+        btnPlay.innerHTML = '&#9654;';
+        clearInterval(playInterval);
+        playInterval = null;
+      }
+
+      // --- Events ---
+      btnPlay.addEventListener('click', togglePlay);
+
+      slider.addEventListener('input', () => {
+        stopPlay();
+        showFrame(parseInt(slider.value));
+      });
+
+      btnLocate.addEventListener('click', () => {
+        if (!navigator.geolocation) return;
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            map.setView([pos.coords.latitude, pos.coords.longitude], 10);
+          },
+          () => {
+            // Geolocation denied or unavailable — silently ignore
+          }
+        );
+      });
+
+      // Resize handling
+      window.addEventListener('resize', () => {
+        map.invalidateSize();
+        updateNowMarker();
+      });
+
+      // --- Init ---
+      await loadRadarData();
+
+      // Auto-refresh every 5 minutes
+      setInterval(async () => {
+        // Clean up old layers
+        for (const key in radarLayers) {
+          if (radarLayers[key]._map) {
+            map.removeLayer(radarLayers[key]);
+          }
+        }
+        radarLayers = {};
+        await loadRadarData();
+      }, 5 * 60 * 1000);
+    })();
+  </script>
+</body>
+</html>
